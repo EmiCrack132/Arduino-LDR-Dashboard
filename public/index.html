@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Monitor LDR</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 24px;
+    }
+    h1 { font-size: 22px; margin-bottom: 6px; color: #38bdf8; }
+    .subtitle { font-size: 13px; color: #64748b; margin-bottom: 24px; }
+
+    /* Tarjetas de valores actuales */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px 16px;
+      text-align: center;
+    }
+    .card .label { font-size: 12px; color: #64748b; margin-bottom: 8px; }
+    .card .value { font-size: 28px; font-weight: 600; color: #38bdf8; }
+    .card .unit  { font-size: 13px; color: #94a3b8; margin-top: 4px; }
+    #card-estado .value { font-size: 18px; color: #4ade80; }
+
+    /* Gráfica */
+    .chart-box {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 28px;
+    }
+    .chart-box h2 { font-size: 15px; color: #94a3b8; margin-bottom: 16px; }
+    canvas { width: 100% !important; }
+
+    /* Historial */
+    .hist-box {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .hist-box h2 { font-size: 15px; color: #94a3b8; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left;
+      padding: 8px 12px;
+      color: #64748b;
+      border-bottom: 1px solid #334155;
+      font-weight: 500;
+    }
+    td { padding: 8px 12px; border-bottom: 1px solid #1e293b; }
+    tr:nth-child(even) td { background: #0f172a; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge.brillante  { background: #fef08a; color: #713f12; }
+    .badge.iluminado  { background: #bbf7d0; color: #14532d; }
+    .badge.penumbra   { background: #fed7aa; color: #7c2d12; }
+    .badge.oscuro     { background: #c7d2fe; color: #1e1b4b; }
+    .badge.muyoscuro  { background: #334155; color: #94a3b8; }
+
+    #estado-conexion {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+      margin-right: 6px;
+    }
+    #estado-conexion.conectado { background: #4ade80; }
+    .conexion-label { font-size: 12px; color: #64748b; }
+  </style>
+</head>
+<body>
+
+  <h1>📡 Monitor LDR en tiempo real</h1>
+  <p class="subtitle">
+    <span id="estado-conexion"></span>
+    <span class="conexion-label" id="texto-conexion">Desconectado</span>
+  </p>
+
+  <!-- Tarjetas -->
+  <div class="cards">
+    <div class="card">
+      <div class="label">Voltaje</div>
+      <div class="value" id="val-voltaje">—</div>
+      <div class="unit">Voltios</div>
+    </div>
+    <div class="card">
+      <div class="label">Porcentaje</div>
+      <div class="value" id="val-pct">—</div>
+      <div class="unit">% de 5V</div>
+    </div>
+    <div class="card">
+      <div class="label">ADC (0–1023)</div>
+      <div class="value" id="val-adc">—</div>
+      <div class="unit">bits</div>
+    </div>
+    <div class="card">
+      <div class="label">Resistencia LDR</div>
+      <div class="value" id="val-ldr">—</div>
+      <div class="unit" id="unit-ldr">Ω</div>
+    </div>
+    <div class="card" id="card-estado">
+      <div class="label">Nivel de luz</div>
+      <div class="value" id="val-estado">—</div>
+      <div class="unit">estado</div>
+    </div>
+  </div>
+
+  <!-- Gráfica -->
+  <div class="chart-box">
+    <h2>Voltaje en A0 (últimas 50 lecturas)</h2>
+    <canvas id="grafica" height="200"></canvas>
+  </div>
+
+  <!-- Historial -->
+  <div class="hist-box">
+    <h2>Historial de lecturas</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Hora</th>
+          <th>Voltaje</th>
+          <th>%</th>
+          <th>ADC</th>
+          <th>LDR</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody id="tabla-body"></tbody>
+    </table>
+  </div>
+
+<script>
+  const socket = io();
+
+  // --- Gráfica Chart.js ---
+  const ctx = document.getElementById("grafica").getContext("2d");
+  const grafica = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [{
+        label: "Voltaje (V)",
+        data: [],
+        borderColor: "#38bdf8",
+        backgroundColor: "rgba(56,189,248,0.08)",
+        borderWidth: 2,
+        pointRadius: 2,
+        tension: 0.3,
+        fill: true,
+      }]
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      scales: {
+        y: {
+          min: 0, max: 5,
+          grid: { color: "#1e293b" },
+          ticks: { color: "#64748b" }
+        },
+        x: {
+          grid: { color: "#1e293b" },
+          ticks: { color: "#64748b", maxTicksLimit: 8 }
+        }
+      },
+      plugins: { legend: { labels: { color: "#94a3b8" } } }
+    }
+  });
+
+  // --- Helpers ---
+  function badgeClass(estado) {
+    const e = estado.toLowerCase();
+    if (e.includes("muy b")) return "brillante";
+    if (e.includes("ilum"))  return "iluminado";
+    if (e.includes("pen"))   return "penumbra";
+    if (e.includes("muy o")) return "muyoscuro";
+    if (e.includes("osc"))   return "oscuro";
+    return "";
+  }
+
+  function formatLDR(ohms) {
+    if (ohms === null) return { val: "—", unit: "Ω" };
+    if (ohms >= 1000) return { val: (ohms / 1000).toFixed(1), unit: "kΩ" };
+    return { val: Math.round(ohms), unit: "Ω" };
+  }
+
+  function actualizarTarjetas(d) {
+    document.getElementById("val-voltaje").textContent = d.voltaje.toFixed(3);
+    document.getElementById("val-pct").textContent     = d.porcentaje.toFixed(1);
+    document.getElementById("val-adc").textContent     = d.adc ?? "—";
+    document.getElementById("val-estado").textContent  = d.estado;
+    const ldr = formatLDR(d.ldr);
+    document.getElementById("val-ldr").textContent  = ldr.val;
+    document.getElementById("unit-ldr").textContent = ldr.unit;
+  }
+
+  function agregarGrafica(d) {
+    const MAX = 50;
+    grafica.data.labels.push(d.timestamp);
+    grafica.data.datasets[0].data.push(d.voltaje);
+    if (grafica.data.labels.length > MAX) {
+      grafica.data.labels.shift();
+      grafica.data.datasets[0].data.shift();
+    }
+    grafica.update();
+  }
+
+  function agregarFila(d, prepend = false) {
+    const ldr = formatLDR(d.ldr);
+    const fila = document.createElement("tr");
+    fila.innerHTML = `
+      <td>${d.timestamp}</td>
+      <td>${d.voltaje.toFixed(3)} V</td>
+      <td>${d.porcentaje.toFixed(1)}%</td>
+      <td>${d.adc ?? "—"}</td>
+      <td>${ldr.val} ${ldr.unit}</td>
+      <td><span class="badge ${badgeClass(d.estado)}">${d.estado}</span></td>
+    `;
+    const tbody = document.getElementById("tabla-body");
+    if (prepend) tbody.insertBefore(fila, tbody.firstChild);
+    else tbody.appendChild(fila);
+
+    // Limitar tabla a 100 filas visibles
+    while (tbody.rows.length > 100) tbody.deleteRow(tbody.rows.length - 1);
+  }
+
+  // --- Eventos Socket.io ---
+  socket.on("connect", () => {
+    document.getElementById("estado-conexion").classList.add("conectado");
+    document.getElementById("texto-conexion").textContent = "Conectado al servidor";
+  });
+
+  socket.on("disconnect", () => {
+    document.getElementById("estado-conexion").classList.remove("conectado");
+    document.getElementById("texto-conexion").textContent = "Desconectado";
+  });
+
+  // Historial inicial al conectarse
+  socket.on("historial", (datos) => {
+    datos.forEach(d => {
+      agregarGrafica(d);
+      agregarFila(d);
+    });
+    if (datos.length > 0) actualizarTarjetas(datos[datos.length - 1]);
+  });
+
+  // Dato nuevo en tiempo real
+  socket.on("dato-ldr", (d) => {
+    actualizarTarjetas(d);
+    agregarGrafica(d);
+    agregarFila(d, true); // prepend para ver el más reciente arriba
+  });
+</script>
+</body>
+</html>
