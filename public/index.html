@@ -3,274 +3,600 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Monitor LDR</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <title>LDR Monitor · Luz Ambiental</title>
   <script src="/socket.io/socket.io.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --sky:    #fdf3c0;
+      --sky2:   #fde68a;
+      --text:   #1a1205;
+      --accent: #b45309;
+      --card:   rgba(255,255,255,0.35);
+      --border: rgba(180,83,9,0.25);
+      --glow:   rgba(251,191,36,0.4);
+      --transition: 1.8s cubic-bezier(.4,0,.2,1);
+    }
+
+    html, body {
+      height: 100%;
+      font-family: 'DM Mono', monospace;
+      overflow-x: hidden;
+    }
+
+    /* ── Sky backdrop ── */
     body {
-      font-family: sans-serif;
-      background: #0f172a;
-      color: #e2e8f0;
-      padding: 24px;
+      background: linear-gradient(160deg, var(--sky) 0%, var(--sky2) 100%);
+      color: var(--text);
+      transition: background var(--transition), color var(--transition);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
-    h1 { font-size: 22px; margin-bottom: 6px; color: #38bdf8; }
-    .subtitle { font-size: 13px; color: #64748b; margin-bottom: 24px; }
 
-    /* Tarjetas de valores actuales */
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 16px;
-      margin-bottom: 28px;
+    /* Stars layer (hidden by day) */
+    #stars {
+      position: fixed; inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0;
+      transition: opacity var(--transition);
     }
-    .card {
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 20px 16px;
-      text-align: center;
-    }
-    .card .label { font-size: 12px; color: #64748b; margin-bottom: 8px; }
-    .card .value { font-size: 28px; font-weight: 600; color: #38bdf8; }
-    .card .unit  { font-size: 13px; color: #94a3b8; margin-top: 4px; }
-    #card-estado .value { font-size: 18px; color: #4ade80; }
-
-    /* Gráfica */
-    .chart-box {
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 28px;
-    }
-    .chart-box h2 { font-size: 15px; color: #94a3b8; margin-bottom: 16px; }
-    canvas { width: 100% !important; }
-
-    /* Historial */
-    .hist-box {
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 20px;
-    }
-    .hist-box h2 { font-size: 15px; color: #94a3b8; margin-bottom: 14px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th {
-      text-align: left;
-      padding: 8px 12px;
-      color: #64748b;
-      border-bottom: 1px solid #334155;
-      font-weight: 500;
-    }
-    td { padding: 8px 12px; border-bottom: 1px solid #1e293b; }
-    tr:nth-child(even) td { background: #0f172a; }
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 20px;
-      font-size: 11px;
-      font-weight: 600;
-    }
-    .badge.brillante  { background: #fef08a; color: #713f12; }
-    .badge.iluminado  { background: #bbf7d0; color: #14532d; }
-    .badge.penumbra   { background: #fed7aa; color: #7c2d12; }
-    .badge.oscuro     { background: #c7d2fe; color: #1e1b4b; }
-    .badge.muyoscuro  { background: #334155; color: #94a3b8; }
-
-    #estado-conexion {
-      display: inline-block;
-      width: 8px; height: 8px;
+    .star {
+      position: absolute;
+      background: #fff;
       border-radius: 50%;
-      background: #ef4444;
-      margin-right: 6px;
+      animation: twinkle 2s infinite alternate;
     }
-    #estado-conexion.conectado { background: #4ade80; }
-    .conexion-label { font-size: 12px; color: #64748b; }
+    @keyframes twinkle { from { opacity:.3 } to { opacity:1 } }
+
+    /* ── Themes ── */
+    body.muy-brillante {
+      --sky: #fef9e7; --sky2: #fde68a; --text: #1c1002;
+      --accent: #ca8a04; --glow: rgba(251,191,36,0.6);
+      --card: rgba(255,255,255,0.45); --border: rgba(202,138,4,0.3);
+      background: linear-gradient(160deg, var(--sky) 0%, var(--sky2) 100%);
+    }
+    body.iluminado {
+      --sky: #fff7ed; --sky2: #fed7aa; --text: #431407;
+      --accent: #ea580c; --glow: rgba(251,146,60,0.45);
+      --card: rgba(255,255,255,0.4); --border: rgba(234,88,12,0.3);
+      background: linear-gradient(160deg, var(--sky) 0%, var(--sky2) 100%);
+    }
+    body.penumbra {
+      --sky: #312e6b; --sky2: #1e1b4b; --text: #e0e7ff;
+      --accent: #818cf8; --glow: rgba(129,140,248,0.4);
+      --card: rgba(30,27,75,0.5); --border: rgba(129,140,248,0.3);
+      background: linear-gradient(160deg, #4338ca 0%, #1e1b4b 100%);
+    }
+    body.oscuro {
+      --sky: #0f172a; --sky2: #020617; --text: #cbd5e1;
+      --accent: #64748b; --glow: rgba(100,116,139,0.3);
+      --card: rgba(15,23,42,0.7); --border: rgba(100,116,139,0.25);
+      background: linear-gradient(160deg, #1e293b 0%, #020617 100%);
+    }
+    body.muy-oscuro {
+      --sky: #03010a; --sky2: #000000; --text: #c7d2fe;
+      --accent: #6366f1; --glow: rgba(99,102,241,0.35);
+      --card: rgba(3,1,10,0.7); --border: rgba(99,102,241,0.2);
+      background: linear-gradient(160deg, #0d0b1e 0%, #000000 100%);
+    }
+
+    body.penumbra #stars,
+    body.oscuro #stars,
+    body.muy-oscuro #stars { opacity: 1; }
+
+    /* ── Celestial body ── */
+    #cielo {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      padding: 3rem 0 1.5rem;
+    }
+
+    .astro {
+      width: 120px; height: 120px;
+      border-radius: 50%;
+      position: relative;
+      transition: all var(--transition);
+      filter: drop-shadow(0 0 32px var(--glow));
+    }
+
+    /* SOL */
+    .astro.sol {
+      background: radial-gradient(circle at 40% 35%, #fef08a, #fbbf24 55%, #f59e0b);
+      box-shadow: 0 0 0 12px rgba(251,191,36,0.15),
+                  0 0 0 28px rgba(251,191,36,0.08);
+      animation: solPulse 3s ease-in-out infinite;
+    }
+    @keyframes solPulse {
+      0%,100% { box-shadow: 0 0 0 12px rgba(251,191,36,0.15), 0 0 0 28px rgba(251,191,36,0.08); }
+      50%      { box-shadow: 0 0 0 20px rgba(251,191,36,0.2), 0 0 0 44px rgba(251,191,36,0.1); }
+    }
+
+    /* Sol rayos */
+    .astro.sol::before, .astro.sol::after {
+      content: '';
+      position: absolute;
+      inset: -18px;
+      border-radius: 50%;
+      border: 3px dashed rgba(251,191,36,0.4);
+      animation: girar 18s linear infinite;
+    }
+    .astro.sol::after {
+      inset: -30px;
+      border-color: rgba(251,191,36,0.2);
+      animation-duration: 30s;
+      animation-direction: reverse;
+    }
+    @keyframes girar { to { transform: rotate(360deg); } }
+
+    /* MEDIA LUNA */
+    .astro.media-luna {
+      background: radial-gradient(circle at 38% 40%, #f1f5f9, #94a3b8);
+      clip-path: polygon(30% 0%, 100% 0%, 100% 100%, 30% 100%,
+                  10% 85%, 0% 65%, 0% 35%, 10% 15%);
+      box-shadow: 0 0 40px rgba(148,163,184,0.5);
+      animation: lunaFloat 6s ease-in-out infinite;
+    }
+
+    /* LUNA LLENA */
+    .astro.luna-llena {
+      background: radial-gradient(circle at 35% 30%, #f8fafc, #cbd5e1 50%, #94a3b8);
+      box-shadow: 0 0 0 8px rgba(199,210,254,0.1),
+                  0 0 50px rgba(99,102,241,0.3);
+      animation: lunaFloat 8s ease-in-out infinite;
+    }
+    /* Cráteres */
+    .astro.luna-llena::before {
+      content: '';
+      position: absolute;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: rgba(148,163,184,0.45);
+      top: 22px; left: 28px;
+      box-shadow: 28px 38px 0 8px rgba(148,163,184,0.3),
+                  58px 14px 0 5px rgba(148,163,184,0.25),
+                  70px 55px 0 6px rgba(148,163,184,0.2);
+    }
+
+    @keyframes lunaFloat {
+      0%,100% { transform: translateY(0); }
+      50%      { transform: translateY(-10px); }
+    }
+
+    /* ── Layout principal ── */
+    #app {
+      position: relative; z-index: 1;
+      width: min(640px, 94vw);
+      padding: 0 0 3rem;
+    }
+
+    h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(1.6rem, 4vw, 2.4rem);
+      font-weight: 900;
+      text-align: center;
+      letter-spacing: -0.5px;
+      margin-bottom: .25rem;
+      color: var(--text);
+      transition: color var(--transition);
+    }
+    .subtitulo {
+      text-align: center;
+      font-size: .75rem;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      opacity: .55;
+      color: var(--text);
+      transition: color var(--transition);
+      margin-bottom: 2rem;
+    }
+
+    /* ── Estado badge ── */
+    #estado-badge {
+      display: block;
+      text-align: center;
+      font-family: 'Playfair Display', serif;
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: .03em;
+      margin-bottom: 2rem;
+      color: var(--accent);
+      transition: color var(--transition);
+    }
+
+    /* ── Cards métricas ── */
+    .metricas {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: .85rem;
+      margin-bottom: 1.5rem;
+    }
+    .metrica {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.1rem .8rem .9rem;
+      text-align: center;
+      backdrop-filter: blur(10px);
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .metrica-label {
+      font-size: .62rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      opacity: .5;
+      color: var(--text);
+      margin-bottom: .35rem;
+      transition: color var(--transition);
+    }
+    .metrica-valor {
+      font-size: 1.55rem;
+      font-weight: 500;
+      color: var(--accent);
+      transition: color var(--transition);
+      line-height: 1;
+    }
+    .metrica-unidad {
+      font-size: .65rem;
+      opacity: .6;
+      color: var(--text);
+      transition: color var(--transition);
+    }
+
+    /* ── Barra de luz ── */
+    .barra-wrap {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.2rem 1.4rem;
+      margin-bottom: 1.5rem;
+      backdrop-filter: blur(10px);
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .barra-label {
+      font-size: .65rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      opacity: .5;
+      color: var(--text);
+      margin-bottom: .7rem;
+      transition: color var(--transition);
+    }
+    .barra-track {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(128,128,128,0.15);
+      overflow: hidden;
+    }
+    .barra-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--accent);
+      transition: width 1s cubic-bezier(.4,0,.2,1), background var(--transition);
+      box-shadow: 0 0 10px var(--glow);
+      width: 0%;
+    }
+
+    /* ── Historial ── */
+    .hist-wrap {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.2rem 1.4rem;
+      backdrop-filter: blur(10px);
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .hist-header {
+      font-size: .65rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      opacity: .5;
+      color: var(--text);
+      margin-bottom: .9rem;
+      transition: color var(--transition);
+    }
+
+    /* Mini sparkline canvas */
+    #sparkline {
+      width: 100%; height: 60px;
+      display: block;
+      border-radius: 8px;
+      margin-bottom: .9rem;
+    }
+
+    .hist-tabla {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .7rem;
+    }
+    .hist-tabla th {
+      text-align: left;
+      opacity: .4;
+      font-weight: 400;
+      letter-spacing: .1em;
+      padding-bottom: .4rem;
+      color: var(--text);
+      transition: color var(--transition);
+    }
+    .hist-tabla td {
+      padding: .28rem 0;
+      color: var(--text);
+      border-top: 1px solid var(--border);
+      transition: color var(--transition), border-color var(--transition);
+    }
+    .hist-tabla td:last-child { text-align: right; opacity: .6; }
+
+    /* ── Timestamp ── */
+    #timestamp {
+      text-align: center;
+      font-size: .65rem;
+      opacity: .35;
+      margin-top: 1.8rem;
+      color: var(--text);
+      transition: color var(--transition);
+      letter-spacing: .08em;
+    }
+
+    /* ── Sin conexión ── */
+    #sin-datos {
+      text-align: center;
+      opacity: .4;
+      font-size: .8rem;
+      margin: 2rem 0;
+    }
+    .dot-anim::after {
+      content: '...';
+      animation: dots 1.5s steps(4,end) infinite;
+    }
+    @keyframes dots {
+      0%  { content: ''; }
+      25% { content: '.'; }
+      50% { content: '..'; }
+      75% { content: '...'; }
+    }
   </style>
 </head>
-<body>
+<body class="muy-brillante">
 
-  <h1>📡 Monitor LDR en tiempo real</h1>
-  <p class="subtitle">
-    <span id="estado-conexion"></span>
-    <span class="conexion-label" id="texto-conexion">Desconectado</span>
-  </p>
+  <!-- Estrellas -->
+  <div id="stars"></div>
 
-  <!-- Tarjetas -->
-  <div class="cards">
-    <div class="card">
-      <div class="label">Voltaje</div>
-      <div class="value" id="val-voltaje">—</div>
-      <div class="unit">Voltios</div>
-    </div>
-    <div class="card">
-      <div class="label">Porcentaje</div>
-      <div class="value" id="val-pct">—</div>
-      <div class="unit">% de 5V</div>
-    </div>
-    <div class="card">
-      <div class="label">ADC (0–1023)</div>
-      <div class="value" id="val-adc">—</div>
-      <div class="unit">bits</div>
-    </div>
-    <div class="card">
-      <div class="label">Resistencia LDR</div>
-      <div class="value" id="val-ldr">—</div>
-      <div class="unit" id="unit-ldr">Ω</div>
-    </div>
-    <div class="card" id="card-estado">
-      <div class="label">Nivel de luz</div>
-      <div class="value" id="val-estado">—</div>
-      <div class="unit">estado</div>
-    </div>
+  <!-- Astro -->
+  <div id="cielo">
+    <div class="astro sol" id="astro"></div>
   </div>
 
-  <!-- Gráfica -->
-  <div class="chart-box">
-    <h2>Voltaje en A0 (últimas 50 lecturas)</h2>
-    <canvas id="grafica" height="200"></canvas>
+  <div id="app">
+    <h1>Monitor de Luz Ambiental</h1>
+    <p class="subtitulo">LDR · Arduino · Tiempo Real</p>
+
+    <span id="estado-badge">—</span>
+
+    <div class="metricas">
+      <div class="metrica">
+        <div class="metrica-label">Voltaje</div>
+        <div class="metrica-valor" id="m-voltaje">—</div>
+        <div class="metrica-unidad">V</div>
+      </div>
+      <div class="metrica">
+        <div class="metrica-label">ADC</div>
+        <div class="metrica-valor" id="m-adc">—</div>
+        <div class="metrica-unidad">/ 1023</div>
+      </div>
+      <div class="metrica">
+        <div class="metrica-label">R LDR</div>
+        <div class="metrica-valor" id="m-ldr">—</div>
+        <div class="metrica-unidad" id="m-ldr-u">Ω</div>
+      </div>
+    </div>
+
+    <div class="barra-wrap">
+      <div class="barra-label">Nivel de luz</div>
+      <div class="barra-track">
+        <div class="barra-fill" id="barra"></div>
+      </div>
+    </div>
+
+    <div class="hist-wrap">
+      <div class="hist-header">Historial · últimos registros</div>
+      <canvas id="sparkline"></canvas>
+      <div id="sin-datos"><span class="dot-anim">Esperando datos</span></div>
+      <table class="hist-tabla" id="tabla-hist" style="display:none">
+        <thead>
+          <tr>
+            <th>Hora</th>
+            <th>%</th>
+            <th>V</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="timestamp"></div>
   </div>
 
-  <!-- Historial -->
-  <div class="hist-box">
-    <h2>Historial de lecturas</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Hora</th>
-          <th>Voltaje</th>
-          <th>%</th>
-          <th>ADC</th>
-          <th>LDR</th>
-          <th>Estado</th>
-        </tr>
-      </thead>
-      <tbody id="tabla-body"></tbody>
-    </table>
-  </div>
+  <script>
+    // ── Estrellas aleatorias ──
+    const starsEl = document.getElementById('stars');
+    for (let i = 0; i < 120; i++) {
+      const s = document.createElement('div');
+      s.className = 'star';
+      const sz = Math.random() * 2.5 + .5;
+      s.style.cssText = `width:${sz}px;height:${sz}px;
+        top:${Math.random()*100}%;left:${Math.random()*100}%;
+        animation-delay:${Math.random()*3}s;
+        animation-duration:${1.5+Math.random()*2}s`;
+      starsEl.appendChild(s);
+    }
 
-<script>
-  const socket = io();
+    const TEMAS = {
+      'Muy brillante': 'muy-brillante',
+      'Iluminado':     'iluminado',
+      'Penumbra':      'penumbra',
+      'Oscuro':        'oscuro',
+      'Muy oscuro':    'muy-oscuro',
+    };
 
-  // --- Gráfica Chart.js ---
-  const ctx = document.getElementById("grafica").getContext("2d");
-  const grafica = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels: [],
-      datasets: [{
-        label: "Voltaje (V)",
-        data: [],
-        borderColor: "#38bdf8",
-        backgroundColor: "rgba(56,189,248,0.08)",
-        borderWidth: 2,
-        pointRadius: 2,
-        tension: 0.3,
-        fill: true,
-      }]
-    },
-    options: {
-      animation: false,
-      responsive: true,
-      scales: {
-        y: {
-          min: 0, max: 5,
-          grid: { color: "#1e293b" },
-          ticks: { color: "#64748b" }
-        },
-        x: {
-          grid: { color: "#1e293b" },
-          ticks: { color: "#64748b", maxTicksLimit: 8 }
+    const ASTROS = {
+      'muy-brillante': { cls: 'sol',        emoji: '☀️' },
+      'iluminado':     { cls: 'sol',        emoji: '🌤️' },
+      'penumbra':      { cls: 'media-luna', emoji: '🌙' },
+      'oscuro':        { cls: 'luna-llena', emoji: '🌕' },
+      'muy-oscuro':    { cls: 'luna-llena', emoji: '🌑' },
+    };
+
+    const body    = document.body;
+    const astro   = document.getElementById('astro');
+    const badge   = document.getElementById('estado-badge');
+    const mV      = document.getElementById('m-voltaje');
+    const mADC    = document.getElementById('m-adc');
+    const mLDR    = document.getElementById('m-ldr');
+    const mLDRu   = document.getElementById('m-ldr-u');
+    const barra   = document.getElementById('barra');
+    const tbody   = document.getElementById('tbody');
+    const tablaEl = document.getElementById('tabla-hist');
+    const sinDat  = document.getElementById('sin-datos');
+    const tsEl    = document.getElementById('timestamp');
+    const canvas  = document.getElementById('sparkline');
+    const ctx     = canvas.getContext('2d');
+
+    let sparkData = [];
+    let temaActual = '';
+
+    function aplicarTema(estado) {
+      const key = TEMAS[estado] || 'iluminado';
+      if (key === temaActual) return;
+      temaActual = key;
+
+      // Clases body
+      Object.values(TEMAS).forEach(c => body.classList.remove(c));
+      body.classList.add(key);
+
+      // Astro
+      const info = ASTROS[key];
+      astro.className = `astro ${info.cls}`;
+    }
+
+    function actualizarUI(dato) {
+      aplicarTema(dato.estado);
+
+      badge.textContent = dato.estado;
+      mV.textContent    = dato.voltaje.toFixed(3);
+      mADC.textContent  = dato.adc ?? '—';
+
+      if (dato.ldr !== null) {
+        if (dato.ldr >= 1000) {
+          mLDR.textContent = (dato.ldr / 1000).toFixed(1);
+          mLDRu.textContent = 'kΩ';
+        } else {
+          mLDR.textContent = dato.ldr.toFixed(0);
+          mLDRu.textContent = 'Ω';
         }
-      },
-      plugins: { legend: { labels: { color: "#94a3b8" } } }
+      }
+
+      barra.style.width = Math.min(dato.porcentaje, 100) + '%';
+      tsEl.textContent  = `Última lectura: ${dato.timestamp}`;
     }
-  });
 
-  // --- Helpers ---
-  function badgeClass(estado) {
-    const e = estado.toLowerCase();
-    if (e.includes("muy b")) return "brillante";
-    if (e.includes("ilum"))  return "iluminado";
-    if (e.includes("pen"))   return "penumbra";
-    if (e.includes("muy o")) return "muyoscuro";
-    if (e.includes("osc"))   return "oscuro";
-    return "";
-  }
+    function dibujarSparkline() {
+      const W = canvas.offsetWidth;
+      const H = 60;
+      canvas.width  = W * devicePixelRatio;
+      canvas.height = H * devicePixelRatio;
+      ctx.scale(devicePixelRatio, devicePixelRatio);
 
-  function formatLDR(ohms) {
-    if (ohms === null) return { val: "—", unit: "Ω" };
-    if (ohms >= 1000) return { val: (ohms / 1000).toFixed(1), unit: "kΩ" };
-    return { val: Math.round(ohms), unit: "Ω" };
-  }
+      if (sparkData.length < 2) return;
 
-  function actualizarTarjetas(d) {
-    document.getElementById("val-voltaje").textContent = d.voltaje.toFixed(3);
-    document.getElementById("val-pct").textContent     = d.porcentaje.toFixed(1);
-    document.getElementById("val-adc").textContent     = d.adc ?? "—";
-    document.getElementById("val-estado").textContent  = d.estado;
-    const ldr = formatLDR(d.ldr);
-    document.getElementById("val-ldr").textContent  = ldr.val;
-    document.getElementById("unit-ldr").textContent = ldr.unit;
-  }
+      const max = 100, min = 0;
+      const pts = sparkData.map((v, i) => ({
+        x: (i / (sparkData.length - 1)) * W,
+        y: H - ((v - min) / (max - min)) * H * .85 - H * .075,
+      }));
 
-  function agregarGrafica(d) {
-    const MAX = 50;
-    grafica.data.labels.push(d.timestamp);
-    grafica.data.datasets[0].data.push(d.voltaje);
-    if (grafica.data.labels.length > MAX) {
-      grafica.data.labels.shift();
-      grafica.data.datasets[0].data.shift();
+      // Fill
+      const accentColor = getComputedStyle(document.documentElement)
+        .getPropertyValue('--accent').trim() || '#ca8a04';
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, accentColor + '55');
+      grad.addColorStop(1, accentColor + '00');
+
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, H);
+      pts.forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.lineTo(pts[pts.length-1].x, H);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Line
+      ctx.beginPath();
+      pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+      ctx.strokeStyle = accentColor;
+      ctx.lineWidth   = 2;
+      ctx.lineJoin    = 'round';
+      ctx.stroke();
     }
-    grafica.update();
-  }
 
-  function agregarFila(d, prepend = false) {
-    const ldr = formatLDR(d.ldr);
-    const fila = document.createElement("tr");
-    fila.innerHTML = `
-      <td>${d.timestamp}</td>
-      <td>${d.voltaje.toFixed(3)} V</td>
-      <td>${d.porcentaje.toFixed(1)}%</td>
-      <td>${d.adc ?? "—"}</td>
-      <td>${ldr.val} ${ldr.unit}</td>
-      <td><span class="badge ${badgeClass(d.estado)}">${d.estado}</span></td>
-    `;
-    const tbody = document.getElementById("tabla-body");
-    if (prepend) tbody.insertBefore(fila, tbody.firstChild);
-    else tbody.appendChild(fila);
+    function cargarHistorial(hist) {
+      if (!hist.length) return;
+      sinDat.style.display  = 'none';
+      tablaEl.style.display = 'table';
 
-    // Limitar tabla a 100 filas visibles
-    while (tbody.rows.length > 100) tbody.deleteRow(tbody.rows.length - 1);
-  }
+      sparkData = hist.map(d => d.porcentaje).slice(-40);
 
-  // --- Eventos Socket.io ---
-  socket.on("connect", () => {
-    document.getElementById("estado-conexion").classList.add("conectado");
-    document.getElementById("texto-conexion").textContent = "Conectado al servidor";
-  });
+      tbody.innerHTML = '';
+      const recientes = hist.slice(-8).reverse();
+      recientes.forEach(d => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${d.timestamp}</td>
+          <td>${d.porcentaje.toFixed(1)}%</td>
+          <td>${d.voltaje.toFixed(2)} V</td>
+          <td>${d.estado}</td>`;
+        tbody.appendChild(tr);
+      });
 
-  socket.on("disconnect", () => {
-    document.getElementById("estado-conexion").classList.remove("conectado");
-    document.getElementById("texto-conexion").textContent = "Desconectado";
-  });
+      actualizarUI(hist[hist.length - 1]);
+      setTimeout(dibujarSparkline, 50);
+    }
 
-  // Historial inicial al conectarse
-  socket.on("historial", (datos) => {
-    datos.forEach(d => {
-      agregarGrafica(d);
-      agregarFila(d);
+    // ── Socket.IO ──
+    const socket = io();
+
+    socket.on('historial', cargarHistorial);
+
+    socket.on('dato-ldr', (dato) => {
+      sinDat.style.display  = 'none';
+      tablaEl.style.display = 'table';
+
+      sparkData.push(dato.porcentaje);
+      if (sparkData.length > 40) sparkData.shift();
+
+      // Insertar fila al inicio
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${dato.timestamp}</td>
+        <td>${dato.porcentaje.toFixed(1)}%</td>
+        <td>${dato.voltaje.toFixed(2)} V</td>
+        <td>${dato.estado}</td>`;
+      tbody.insertBefore(tr, tbody.firstChild);
+      if (tbody.children.length > 8) tbody.removeChild(tbody.lastChild);
+
+      actualizarUI(dato);
+      dibujarSparkline();
     });
-    if (datos.length > 0) actualizarTarjetas(datos[datos.length - 1]);
-  });
 
-  // Dato nuevo en tiempo real
-  socket.on("dato-ldr", (d) => {
-    actualizarTarjetas(d);
-    agregarGrafica(d);
-    agregarFila(d, true); // prepend para ver el más reciente arriba
-  });
-</script>
+    // Redibujar sparkline al cambiar tamaño
+    window.addEventListener('resize', dibujarSparkline);
+  </script>
 </body>
 </html>
