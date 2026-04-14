@@ -7,6 +7,9 @@ visualizado en tiempo real desde el navegador con Node.js y Socket.io.
 - Arduino Uno
 - Node.js
 
+## Circuito
+![Diagrama del circuito](images/circuit.png)
+
 ## Uso
 1. Cargar el `.ino` en el Arduino
 2. Entrar a la carpeta `proyecto-ldr`
